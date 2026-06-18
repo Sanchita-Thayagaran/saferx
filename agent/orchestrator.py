@@ -10,6 +10,7 @@ Step 6  Reporting Loop          generate_regulatory_report (YELLOW/RED only)
 """
 from __future__ import annotations
 
+import os
 import re
 import time
 import uuid
@@ -18,6 +19,7 @@ from typing import Optional
 import structlog
 
 from agent.foundry_client import FoundryAgentClient, FoundryIQClient
+from agent.real_data_client import RealDataClient
 from agent.models import (
     ActionGuidance,
     DatabaseMatch,
@@ -76,6 +78,8 @@ class VerificationOrchestrator:
     def __init__(self) -> None:
         self._iq    = FoundryIQClient()
         self._agent = FoundryAgentClient()
+        self.real_data_client = RealDataClient()
+        self.use_real_data = os.getenv("USE_REAL_DATA", "true").lower() == "true"
 
     async def verify(self, request: VerificationRequest) -> VerificationResponse:
         request_id = str(uuid.uuid4())
@@ -126,23 +130,43 @@ class VerificationOrchestrator:
 
         # ── Step 2: Foundry IQ Verification ──────────────────────────────────
         # Always runs even if extraction was partial — fall back to raw input_text.
-        database_matches: list[DatabaseMatch] = await self._iq.verify_drug(
-            drug_name=extracted_info.drug_name or request.input_text,
-            manufacturer=extracted_info.manufacturer,
-            batch_number=extracted_info.batch_number,
-            country=extracted_info.country_of_origin,
-            raw_input=request.input_text,
-        )
+        drug_name_for_query = extracted_info.drug_name or request.input_text
+
+        if self.use_real_data:
+            bound.info("step_2.real_data_used", used=True)
+            real_result = await self.real_data_client.verify_drug_realworld(
+                drug_name_for_query, extracted_info.batch_number
+            )
+            foundry_matches = await self._iq.verify_drug(
+                drug_name=drug_name_for_query,
+                manufacturer=extracted_info.manufacturer,
+                batch_number=extracted_info.batch_number,
+                country=extracted_info.country_of_origin,
+                raw_input=request.input_text,
+            )
+            database_matches = real_result["matches"] + foundry_matches
+        else:
+            bound.info("step_2.real_data_used", used=False)
+            database_matches = await self._iq.verify_drug(
+                drug_name=drug_name_for_query,
+                manufacturer=extracted_info.manufacturer,
+                batch_number=extracted_info.batch_number,
+                country=extracted_info.country_of_origin,
+                raw_input=request.input_text,
+            )
+
         sources_checked = sorted({m.source for m in database_matches})
         matched_count   = sum(1 for m in database_matches if m.matched)
         bound.info(
             "step_2.complete",
             matched_count=matched_count,
             sources_checked=sources_checked,
+            real_data_used=self.use_real_data,
         )
         trace.append(
             f"Step 2 — Queried {len(sources_checked)} source(s) "
             f"({', '.join(sources_checked)}); {matched_count} matching record(s) found."
+            + (" [live data]" if self.use_real_data else " [mock data]")
         )
 
         # ── Step 3: Anomaly Reasoning ─────────────────────────────────────────

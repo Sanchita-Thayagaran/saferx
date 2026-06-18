@@ -1,3 +1,10 @@
+import os
+
+# Tests must stay fast, deterministic, and network-free — force mock data even
+# though VerificationOrchestrator defaults USE_REAL_DATA to "true" in production.
+# Must be set before agent.main / VerificationOrchestrator is imported/instantiated.
+os.environ["USE_REAL_DATA"] = "false"
+
 import pytest
 from fastapi.testclient import TestClient
 

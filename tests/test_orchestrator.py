@@ -1,7 +1,9 @@
 """Unit tests for agent/orchestrator.py — scoring, escalation, and the full chain."""
+from unittest.mock import AsyncMock
+
 import pytest
 
-from agent.models import RiskLevel, VerificationRequest
+from agent.models import DatabaseMatch, RiskLevel, VerificationRequest
 from agent.orchestrator import (
     VerificationOrchestrator,
     _is_sufficient_input,
@@ -132,3 +134,50 @@ class TestOrchestratorVerify:
         r1 = await orchestrator.verify(request)
         r2 = await orchestrator.verify(request)
         assert r1.request_id != r2.request_id
+
+
+class TestUseRealDataFlag:
+    """USE_REAL_DATA defaults to 'true' in production; here we drive it explicitly
+    via the instance flag and mock both data sources to stay network-free."""
+
+    def _orchestrator_with_mocks(self, real_matches, foundry_matches):
+        orchestrator = VerificationOrchestrator()
+        orchestrator.real_data_client.verify_drug_realworld = AsyncMock(
+            return_value={"matches": real_matches, "sources_checked": [], "real_data": True, "query_count": 2}
+        )
+        orchestrator._iq.verify_drug = AsyncMock(return_value=foundry_matches)
+        return orchestrator
+
+    @pytest.mark.asyncio
+    async def test_real_data_true_merges_both_sources(self, green_payload):
+        real_matches = [DatabaseMatch(source="FDA_ENFORCEMENT", matched=True, alert_type=None, confidence=0.5)]
+        foundry_matches = [DatabaseMatch(source="WHO_GFMD", matched=True, alert_type=None, confidence=0.97)]
+        orchestrator = self._orchestrator_with_mocks(real_matches, foundry_matches)
+        orchestrator.use_real_data = True
+
+        response = await orchestrator.verify(VerificationRequest(**green_payload))
+
+        orchestrator.real_data_client.verify_drug_realworld.assert_awaited_once()
+        orchestrator._iq.verify_drug.assert_awaited_once()
+        sources = {m.source for m in response.database_matches}
+        assert sources == {"FDA_ENFORCEMENT", "WHO_GFMD"}
+
+    @pytest.mark.asyncio
+    async def test_real_data_false_skips_real_data_client(self, green_payload):
+        real_matches = [DatabaseMatch(source="FDA_ENFORCEMENT", matched=True, alert_type=None, confidence=0.5)]
+        foundry_matches = [DatabaseMatch(source="WHO_GFMD", matched=True, alert_type=None, confidence=0.97)]
+        orchestrator = self._orchestrator_with_mocks(real_matches, foundry_matches)
+        orchestrator.use_real_data = False
+
+        response = await orchestrator.verify(VerificationRequest(**green_payload))
+
+        orchestrator.real_data_client.verify_drug_realworld.assert_not_awaited()
+        orchestrator._iq.verify_drug.assert_awaited_once()
+        sources = {m.source for m in response.database_matches}
+        assert sources == {"WHO_GFMD"}
+
+    def test_default_flag_reads_env_var(self, monkeypatch):
+        monkeypatch.setenv("USE_REAL_DATA", "false")
+        assert VerificationOrchestrator().use_real_data is False
+        monkeypatch.setenv("USE_REAL_DATA", "true")
+        assert VerificationOrchestrator().use_real_data is True
