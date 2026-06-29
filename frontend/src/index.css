@@ -1,34 +1,127 @@
 @import "tailwindcss";
 
-/* Expanding ring pulse — used by the risk-level signature circle */
+/* ── Custom properties ────────────────────────────────────────────────────── */
+
+:root {
+  --bg-base:    #0A0F1E;
+  --bg-surface: #111827;
+  --border:     #1F2937;
+  --text-hi:    #F9FAFB;
+  --text-mid:   #9CA3AF;
+  --blue:       #3B82F6;
+}
+
+/* ── Global base ─────────────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-base);
+  color: var(--text-hi);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* Subtle SVG noise layer over the body background */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.028;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+
+#root { position: relative; z-index: 1; }
+
+/* ── Typography ──────────────────────────────────────────────────────────── */
+
+h1, h2, h3, h4 {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+code { font-family: ui-monospace, 'Cascadia Code', monospace; font-size: 0.88em; }
+
+/* ── Focus ring (WCAG AA) ────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar       { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2D3748; border-radius: 3px; }
+
+/* ── Risk circle: expanding rings ────────────────────────────────────────── */
+
 @keyframes saferx-ring-expand {
-  0%   { transform: scale(1);   opacity: 0.55; }
-  100% { transform: scale(2.4); opacity: 0;    }
+  0%   { transform: scale(1);    opacity: 0.5; }
+  100% { transform: scale(1.45); opacity: 0;   }
+}
+
+@keyframes saferx-breathe {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.82; }
 }
 
 .saferx-ring {
-  animation: saferx-ring-expand 2.8s ease-out infinite;
+  animation: saferx-ring-expand 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 .saferx-ring-delayed {
-  animation: saferx-ring-expand 2.8s ease-out infinite;
-  animation-delay: 0.9s;
-}
-
-/* Gentle scale breathe on the main circle */
-@keyframes saferx-breathe {
-  0%, 100% { transform: scale(1);    }
-  50%       { transform: scale(1.04); }
+  animation: saferx-ring-expand 2.4s cubic-bezier(0.4, 0, 0.6, 1) 1.2s infinite;
 }
 
 .saferx-breathe {
   animation: saferx-breathe 3s ease-in-out infinite;
 }
 
-* { box-sizing: border-box; }
+/* ── Active pipeline step shimmer ────────────────────────────────────────── */
 
-body {
-  margin: 0;
-  background: #0A0F1E;
-  -webkit-font-smoothing: antialiased;
+@keyframes shimmer {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(220%); }
+}
+
+.saferx-shimmer {
+  overflow: hidden;
+}
+
+.saferx-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(59, 130, 246, 0.1) 50%,
+    transparent 100%
+  );
+  animation: shimmer 1.8s linear infinite;
+}
+
+/* ── Respect reduced-motion preference ───────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .saferx-ring,
+  .saferx-ring-delayed,
+  .saferx-breathe,
+  .saferx-shimmer::after {
+    animation: none;
+  }
 }
